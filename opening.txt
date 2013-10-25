@@ -1,0 +1,48 @@
+LEADS
+l0
+l1
+l2
+l3
+
+FOLLOWS
+f0
+f1
+f2
+f3
+
+#(w,p)
+LEAD PREFERENCES
+l0 1 0 f0
+l0 0 0 f1
+l0 0 0 f2
+l0 0 1 f3
+l1 0 1 f0
+l1 1 0 f1
+l1 0 0 f2
+l1 0 0 f3
+l2 0 0 f0
+l2 0 1 f1
+l2 1 0 f2
+l2 0 0 f3
+l3 0 0 f0
+l3 0 0 f1
+l3 0 1 f2
+l3 1 0 f3
+
+FOLLOW PREFERENCES
+f0 1 0 l0
+f1 0 0 l0
+f2 0 0 l0
+f3 0 1 l0
+f0 0 1 l1
+f1 1 0 l1
+f2 0 0 l1
+f3 0 0 l1
+f0 0 0 l2
+f1 0 1 l2
+f2 1 0 l2
+f3 0 0 l2
+f0 0 0 l3
+f1 0 0 l3
+f2 0 1 l3
+f3 1 0 l3
