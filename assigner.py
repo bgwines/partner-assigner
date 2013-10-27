@@ -12,40 +12,49 @@ LEADS = 1
 
 debug = False
 
-class Opening_map:
-    edges = {}
-    leads = []
-    follows = []
+THE_LEAD_OBJS = {}
+THE_FOLLOW_OBJS = {}
 
-    def __init__(self):
-        pass
+def insert_lead(name):
+    THE_LEAD_OBJS[name] = DancerState(name)
 
-    def insert_lead(self, name):
-        self.leads.append(name)
-        self.edges[name] = ([], ([], []))
+def insert_follow(name):
+    THE_FOLLOW_OBJS[name] = DancerState(name)
 
-    def insert_follow(self, name):
-        self.follows.append(name)
-        self.edges[name] = ([], ([], []))
-
-    def insert_preference(self, preference):
-        self.edges[preference.src][NAMES].append(
-            preference.dst
-        )
-        self.edges[preference.src][PREFS][WALTZ].append(
-            preference.weight_waltz
-        )
-        self.edges[preference.src][PREFS][POLKA].append(
-            preference.weight_polka
-        )
+def insert_preference(preference):
+    is_lead = (preference.src in THE_LEAD_OBJS)
+    if is_lead:
+        THE_LEAD_OBJS[preference.src].set_preference(preference)
+    else:
+        THE_FOLLOW_OBJS[preference.src].set_preference(preference)
 
 class DancerState(object):
-    name = None
-    waltz_partner = None
-    polka_partner = None
 
     def __init__(self, name_param):
         self.name = name_param
+        self.waltz_partner = None
+        self.polka_partner = None
+        self.heart = (None, None) #person, dance
+        self.waltz_prefs = {}
+        self.polka_prefs = {}
+
+    def set_preference(self, preference):
+        self.waltz_prefs[preference.dst] = preference.weight_waltz
+        self.polka_prefs[preference.dst] = preference.weight_polka
+
+        if preference.weight_waltz == '<3':
+            self.heart = (preference.dst, WALTZ)
+        if preference.weight_polka == '<3':
+            self.heart = (preference.dst, POLKA)
+
+    def has_heart(self):
+        return self.heart != (None, None)
+
+    def get_heart(self):
+        return self.heart
+
+    def set_heart(self, heart_param):
+        self.heart = heart_param
 
     def set_waltz_partner(self, waltz_partner_param):
         self.waltz_partner = waltz_partner_param
@@ -84,8 +93,9 @@ class Preference(object):
 
     def __init__(self, gender, line):
         (self.src, self.weight_waltz, self.weight_polka, self.dst) = line.split(' ')
-        self.weight_waltz = int(self.weight_waltz)
-        self.weight_polka = int(self.weight_polka)
+
+    def __repr__(self):
+        return self.src + ' -> ' + self.dst + ': (w,p)=(' + str(self.weight_waltz) + ',' + str(self.weight_polka) + ')' 
 
 #Parser methods
 def create_dancer(line):
@@ -112,54 +122,20 @@ def fill_map(filename = 'opening.txt'):
             continue
 
         if curr_state == 'LEADS':
-            opening_map.insert_lead(create_dancer(line))
-        if curr_state == 'FOLLOWS':
-            opening_map.insert_follow(create_dancer(line))
-        if curr_state == 'LEAD PREFERENCES':
-            opening_map.insert_preference((create_lead_preference(line))            )
-        if curr_state == 'FOLLOW PREFERENCES':
-            opening_map.insert_preference((create_follow_preference(line))            )
+            insert_lead(create_dancer(line))
+        elif curr_state == 'FOLLOWS':
+            insert_follow(create_dancer(line))
+        elif curr_state == 'LEAD PREFERENCES':
+            insert_preference((create_lead_preference(line)))
+        elif curr_state == 'FOLLOW PREFERENCES':
+            insert_preference((create_follow_preference(line)))
 
-def create_initial_state(leads, follows):
-    initial_follow_state = []
-    for follow in follows:
-        initial_follow_state.append(DancerState(follow))
-
-    initial_lead_state = []
-    for lead in leads:
-        initial_lead_state.append(DancerState(lead))
-
-    return (initial_follow_state, initial_lead_state)
-
-def gen_next_states(follow_state, lead_state, i):
-    curr_lead = lead_state[i].name
-    # by direction of DP, curr_lead has both partners free
-
-    next_states = []
-    #opt: only enumerate over free ones?
-    for w_i, waltz_partner_state in enumerate(follow_state):
-        #? (follow_state_copy, lead_state_copy) = (copy.copy(follow_state), copy.copy(lead_state))
-        if not waltz_partner_state.free_for_waltz(): continue
-
-        for p_i, polka_partner_state in enumerate(follow_state):
-            if not polka_partner_state.free_for_polka(): continue
-            if polka_partner_state.name == waltz_partner_state.name: continue
-
-            #opt: fewer copies?
-            (follow_state_copy, lead_state_copy) = (copy.deepcopy(follow_state), copy.deepcopy(lead_state))
-
-            #make current assignment
-            lead_state_copy[i].set_partners(waltz_partner_state.name, polka_partner_state.name)
-            follow_state_copy[w_i].set_waltz_partner(curr_lead)
-            follow_state_copy[p_i].set_polka_partner(curr_lead)
-            next_states.append(
-                (follow_state_copy, lead_state_copy)
-            )
-    return next_states
+def create_initial_state():
+    return (THE_FOLLOW_OBJS, THE_LEAD_OBJS)
 
 def list_of_follow_states_to_count_vector(follow_states):
     l = []
-    for follow_state in follow_states:
+    for (follow_name, follow_state) in follow_states.items():
         l.append(follow_state.count_dances_taken())
     return tuple(l)
 
@@ -173,38 +149,52 @@ def make_state_buckets(states):
             state_buckets[state_count_vector] = [state]
     return state_buckets
 
+X = -1
+HEART = 100#TODO
+BAD_STATE = 18 * 2 * (-100)
+def calc_value(ranking):
+    if ranking == 'X':
+        return X
+    elif ranking == '<3':
+        return HEART
+    else:
+        return int(ranking)
+
 def calc_state_score(state):
     score = 0
     #TODO: dp the score
-    for follow_state in state[FOLLOWS]:
-        follow_name = follow_state.name
-        follow_index = FOLLOW_INDICES[follow_name]
-
+    for (follow_name, follow_state) in state[FOLLOWS].items():
         if not follow_state.free_for_waltz():
             lead_name = follow_state.waltz_partner
-            lead_index = LEAD_INDICES[lead_name]
 
-            score += opening_map.edges[follow_name][PREFS][WALTZ][lead_index]
-            score += opening_map.edges[lead_name][PREFS][WALTZ][follow_index]
+            value_a = calc_value(follow_state.waltz_prefs[lead_name])
+            value_b = calc_value(THE_LEAD_OBJS[lead_name].waltz_prefs[follow_name])
+            if value_a == X or value_b == X:
+                return BAD_STATE
+            score += value_a + value_b
+
         if not follow_state.free_for_polka():
             lead_name = follow_state.polka_partner
-            lead_index = LEAD_INDICES[lead_name]
 
-            score += opening_map.edges[follow_name][PREFS][POLKA][lead_index]
-            score += opening_map.edges[lead_name][PREFS][POLKA][follow_index]
+            value_a = calc_value(THE_FOLLOW_OBJS[follow_name].polka_prefs[lead_name])
+            value_b = calc_value(THE_LEAD_OBJS[lead_name].polka_prefs[follow_name])
+            if value_a == X or value_b == X:
+                return BAD_STATE
+            score += value_a + value_b
 
     return score
 
 def print_state(state, flag = False):
     matrix = []
     matrix.append([''])
-    for lead_state in state[LEADS]:
+    for (lead_name, lead_state) in state[LEADS].items():
         matrix[0].append(lead_state.name)
 
-    for i, follow_state in enumerate(state[FOLLOWS]):
+    i=0;
+    for (follow_name, follow_state) in state[FOLLOWS].items():
         matrix.append([follow_state.name])
         i += 1
-        for lead_state in state[LEADS]:
+        for (lead_name, lead_state) in state[LEADS].items():
             if follow_state.waltz_partner == lead_state.name:
                 matrix[i].append('W')
             elif follow_state.polka_partner == lead_state.name:
@@ -240,6 +230,30 @@ def calc_opt_state(states):
 
     return best_state
 
+def gen_next_states(follow_state, lead_state, curr_lead):
+    # by direction of DP, curr_lead has both partners free
+
+    next_states = []
+    #opt: only enumerate over free ones?
+    for (waltz_partner_name, waltz_partner_state) in follow_state.items():
+        #? (follow_state_copy, lead_state_copy) = (copy.copy(follow_state), copy.copy(lead_state))
+        if not waltz_partner_state.free_for_waltz(): continue
+
+        for (polka_partner_name, polka_partner_state) in follow_state.items():
+            if not polka_partner_state.free_for_polka(): continue
+            if polka_partner_state.name == waltz_partner_state.name: continue
+
+            (follow_state_copy, lead_state_copy) = (copy.deepcopy(follow_state), copy.deepcopy(lead_state))
+
+            #make current assignment
+            lead_state_copy[curr_lead].set_partners(waltz_partner_state.name, polka_partner_state.name)
+            follow_state_copy[waltz_partner_name].set_waltz_partner(curr_lead)
+            follow_state_copy[polka_partner_name].set_polka_partner(curr_lead)
+            next_states.append(
+                (follow_state_copy, lead_state_copy)
+            )
+    return next_states
+
 def collapse_states(states):
     if len(states) == 1:
         #optimization
@@ -257,7 +271,7 @@ def calc_optimal_assignments_with_curr_lead(dp_state, i):
     new_dp_state = []
 
     new_states = []
-    for (follow_state,lead_state) in dp_state:
+    for (follow_state, lead_state) in dp_state:
         states_from_curr_state = gen_next_states(follow_state, lead_state, i)
         for state_from_curr_state in states_from_curr_state:
             new_states.append(state_from_curr_state)
@@ -273,21 +287,19 @@ def dp():
     dp_state = [[DancerState], [DancerState], [DancerState], ...]
         where [DancerState] = a list of assignments, one of <=3^18
     """
-    initial_state = create_initial_state(opening_map.leads, opening_map.follows)
+    initial_state = create_initial_state()
     dp_state = [initial_state]
 
-    for i in xrange(len(opening_map.leads)):
-        print '----- DP LEVEL ', i, '-----'
-        #curr_leads = opening_map.leads[:(i+1)]
+    for j,lead in enumerate(THE_LEAD_OBJS):
+        print '----- DP LEVEL ', j, '-----'
         dp_state = calc_optimal_assignments_with_curr_lead(
             dp_state,
-            i
+            lead
         )
         
         for i, (f_states, l_states) in enumerate(dp_state):
             print i, ': ', list_of_follow_states_to_count_vector(f_states), calc_state_score((f_states, l_states))
 
-        #pdb.set_trace()
         print ''
 
     return dp_state
@@ -300,14 +312,7 @@ def list_to_index_dict(arr):
 
 
 # globals
-opening_map = Opening_map()
 fill_map()
-
-THE_LEADS = opening_map.leads
-THE_FOLLOWS = opening_map.follows
-
-LEAD_INDICES = list_to_index_dict(THE_LEADS)
-FOLLOW_INDICES = list_to_index_dict(THE_FOLLOWS)
 
 # program
 
