@@ -1,5 +1,6 @@
 import copy
 import pdb
+import sys
 
 WALTZ = 0
 POLKA = 1
@@ -10,7 +11,12 @@ PREFS = 1
 FOLLOWS = 0
 LEADS = 1
 
-debug = False
+SCORE_METRIC = None
+SCORE_METRIC_MAX_MIN_ASSIGNMENT = 0
+SCORE_METRIC_MAX_SUM = 1
+
+debug_flag = False
+status_flag = True
 
 THE_LEAD_OBJS = {}
 THE_FOLLOW_OBJS = {}
@@ -29,7 +35,6 @@ def insert_preference(preference):
         THE_FOLLOW_OBJS[preference.src].set_preference(preference)
 
 class DancerState(object):
-
     def __init__(self, name_param):
         self.name = name_param
         self.waltz_partner = None
@@ -109,7 +114,7 @@ def create_follow_preference(line):
 
 STATES = ['LEADS', 'FOLLOWS', 'LEAD PREFERENCES', 'FOLLOW PREFERENCES']
 
-def fill_map(filename = 'opening.txt'):
+def read_in_data(filename = 'opening.txt'):
     file = open(filename, "r")
     line = ''
     curr_state = None
@@ -160,8 +165,8 @@ def calc_value(ranking):
     else:
         return int(ranking)
 
-def calc_state_score(state):
-    score = 0
+def get_scores_from_state(state):
+    scores = []
     #TODO: dp the score
     for (follow_name, follow_state) in state[FOLLOWS].items():
         if not follow_state.free_for_waltz():
@@ -169,20 +174,42 @@ def calc_state_score(state):
 
             value_a = calc_value(follow_state.waltz_prefs[lead_name])
             value_b = calc_value(THE_LEAD_OBJS[lead_name].waltz_prefs[follow_name])
-            if value_a == X or value_b == X:
-                return BAD_STATE
-            score += value_a + value_b
+            scores.append(value_a)
+            scores.append(value_b)
 
         if not follow_state.free_for_polka():
             lead_name = follow_state.polka_partner
 
             value_a = calc_value(THE_FOLLOW_OBJS[follow_name].polka_prefs[lead_name])
             value_b = calc_value(THE_LEAD_OBJS[lead_name].polka_prefs[follow_name])
-            if value_a == X or value_b == X:
-                return BAD_STATE
-            score += value_a + value_b
+            scores.append(value_a)
+            scores.append(value_b)
 
-    return score
+    return scores
+
+SENTINEL = -2
+def calc_state_score_max_min_assignment(scores):
+    min_score = SENTINEL
+    for score in scores:
+        if min_score == SENTINEL or score < min_score:
+            min_score = score
+    return min_score
+
+def calc_state_score_max_sum(scores):
+    sum = 0
+    for score in scores:
+        sum += score
+    return sum
+
+def calc_state_score(state):
+    scores = get_scores_from_state(state)
+
+    if SCORE_METRIC == SCORE_METRIC_MAX_MIN_ASSIGNMENT:
+        return calc_state_score_max_min_assignment(scores)
+    elif SCORE_METRIC == SCORE_METRIC_MAX_SUM:
+        return calc_state_score_max_sum(scores)
+    else:
+        return -1
 
 def print_state(state, flag = False):
     matrix = []
@@ -211,22 +238,25 @@ def print_state(state, flag = False):
 
 
 def calc_opt_state(states):
-    if debug: print '-- new bucket of size ', len(states), ' --'
+    scores_for_printing = []
+    state_vector_for_printing = list_of_follow_states_to_count_vector(states[0][FOLLOWS])
 
     best_state = None
     best_state_score = None
     for state in states:
         state_score = calc_state_score(state)
+        scores_for_printing.append(state_score)
 
-        if debug: print '\tstate score ', state_score, ' for state: ', state
-        if debug: print_state(state)
+        if debug_flag: print '\tstate score ', state_score, ' for state: ', state
+        if debug_flag: print_state(state)
 
         if state_score > best_state_score:
             best_state_score = state_score
             best_state = state
 
-    if debug: print '\topt state:'
-    if debug: print_state(best_state, True)
+    if status_flag:
+        print '\t--', state_vector_for_printing, ': state vector bucket size: ', len(states),
+        print 'scores (opt:', best_state_score, '): ', scores_for_printing
 
     return best_state
 
@@ -287,36 +317,46 @@ def dp():
     dp_state = [[DancerState], [DancerState], [DancerState], ...]
         where [DancerState] = a list of assignments, one of <=3^18
     """
+    print 'calculating...'
     initial_state = create_initial_state()
     dp_state = [initial_state]
 
     for j,lead in enumerate(THE_LEAD_OBJS):
-        print '----- DP LEVEL ', j, '-----'
+        if status_flag:
+            print '----- adding lead #', j, '-----'
         dp_state = calc_optimal_assignments_with_curr_lead(
             dp_state,
             lead
         )
-        
-        for i, (f_states, l_states) in enumerate(dp_state):
-            print i, ': ', list_of_follow_states_to_count_vector(f_states), calc_state_score((f_states, l_states))
-
-        print ''
 
     return dp_state
 
-def list_to_index_dict(arr):
-    d = {}
-    for i,e in enumerate(arr):
-        d[e] = i
-    return d
+def selection_not_valid(selection):
+    return (selection != SCORE_METRIC_MAX_MIN_ASSIGNMENT
+        and selection != SCORE_METRIC_MAX_SUM)
 
+def determine_score_metric():
+    selection = None
+    while selection_not_valid(selection):
+        print 'Select a score metric:'
+        print '\t(', 0, ') max-min'
+        print '\t(', 1, ') max-sum'
+        selection = input()
 
-# globals
-fill_map()
+    global SCORE_METRIC
+    SCORE_METRIC = selection
 
-# program
+def print_assignments(assignments):
+    print '\n- final assignments -'
+    print print_state(assignments)
 
-final_assignments = dp()
+FILENAME = 1
+def __main__():
+    determine_score_metric()
+    read_in_data(sys.argv[FILENAME])
 
-print '- final assignments -'
-print print_state(final_assignments[0])
+    final_assignments = dp()
+    print_assignments(final_assignments[0])
+
+if __name__ == '__main__':
+    __main__()
