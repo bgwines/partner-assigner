@@ -1,6 +1,7 @@
 import copy
 import pdb
 import sys
+import thread
 
 WALTZ = 0
 POLKA = 1
@@ -10,6 +11,10 @@ PREFS = 1
 
 FOLLOWS = 0
 LEADS = 1
+
+NAME = 0
+FIRST_YEAR_STATUS = 1
+IS_FIRST_YEAR = '1'
 
 SCORE_METRIC = None
 SCORE_METRIC_MAX_MIN_ASSIGNMENT = 0
@@ -21,11 +26,19 @@ status_flag = True
 THE_LEAD_OBJS = {}
 THE_FOLLOW_OBJS = {}
 
-def insert_lead(name):
-    THE_LEAD_OBJS[name] = DancerState(name)
+STATES = set(['LEADS', 'FOLLOWS', 'LEAD PREFERENCES', 'FOLLOW PREFERENCES'])
 
-def insert_follow(name):
-    THE_FOLLOW_OBJS[name] = DancerState(name)
+def insert_lead(dancer):
+    if len(dancer) == 1:
+        dancer.append('NOT_FIRST_YEAR')
+
+    THE_LEAD_OBJS[dancer[NAME]] = DancerState(dancer[NAME], dancer[FIRST_YEAR_STATUS])
+
+def insert_follow(dancer):
+    if len(dancer) == 1:
+        dancer.append('NOT_FIRST_YEAR')
+    
+    THE_FOLLOW_OBJS[dancer[NAME]] = DancerState(dancer[NAME], dancer[FIRST_YEAR_STATUS])
 
 def insert_preference(preference):
     is_lead = (preference.src in THE_LEAD_OBJS)
@@ -34,14 +47,15 @@ def insert_preference(preference):
     else:
         THE_FOLLOW_OBJS[preference.src].set_preference(preference)
 
-class DancerState(object):
-    def __init__(self, name_param):
-        self.name = name_param
+class DancerState:
+    def __init__(self, dancer_name, first_year_status):
+        self.name = dancer_name
         self.waltz_partner = None
         self.polka_partner = None
         self.heart = (None, None) #person, dance
         self.waltz_prefs = {}
         self.polka_prefs = {}
+        self.can_be_alternate = (first_year_status == IS_FIRST_YEAR)
 
     def set_preference(self, preference):
         self.waltz_prefs[preference.dst] = preference.weight_waltz
@@ -90,7 +104,7 @@ class DancerState(object):
     def __repr__(self):
         return self.name + ' : (w,p)=(' + str(self.waltz_partner) + ',' + str(self.polka_partner) + ')' 
 
-class Preference(object):
+class Preference:
     src = None
     dst = None
     weight_waltz = None
@@ -102,9 +116,16 @@ class Preference(object):
     def __repr__(self):
         return self.src + ' -> ' + self.dst + ': (w,p)=(' + str(self.weight_waltz) + ',' + str(self.weight_polka) + ')' 
 
+class AssignmentState:
+    def __init__(self, follow_state = [], lead_state = []):
+        self.follow_state = follow_state
+        self.lead_state = lead_state
+        self.waltz_alternates = []
+        self.polka_alternates = []
+
 #Parser methods
 def create_dancer(line):
-    return line
+    return line.split()
 
 def create_lead_preference(line):
     return Preference('LEAD', line)
@@ -112,7 +133,22 @@ def create_lead_preference(line):
 def create_follow_preference(line):
     return Preference('FOLLOW', line)
 
-STATES = ['LEADS', 'FOLLOWS', 'LEAD PREFERENCES', 'FOLLOW PREFERENCES']
+def insert_alternate_objs():
+    insert_lead(create_dancer('ALTERNATE1L 1'))
+    insert_lead(create_dancer('ALTERNATE2L 1'))
+    insert_follow(create_dancer('ALTERNATE1F 1'))
+    insert_follow(create_dancer('ALTERNATE2F 1'))
+
+    for lead_name in THE_LEAD_OBJS.keys():
+        # 0: TODO (max / min if 1-18)
+        insert_preference(create_follow_preference('ALTERNATE1F 1 1 ' + lead_name))
+        insert_preference(create_follow_preference('ALTERNATE2F 1 1 ' + lead_name))
+
+    for follow_name in THE_FOLLOW_OBJS.keys():
+        # 0: TODO (max / min if 1-18)
+        insert_preference(create_lead_preference('ALTERNATE1L 1 1 ' + follow_name))
+        insert_preference(create_lead_preference('ALTERNATE2L 1 1 ' + follow_name))
+
 
 def read_in_data(filename = 'opening.txt'):
     file = open(filename, "r")
@@ -135,6 +171,8 @@ def read_in_data(filename = 'opening.txt'):
         elif curr_state == 'FOLLOW PREFERENCES':
             insert_preference((create_follow_preference(line)))
 
+    insert_alternate_objs()
+
 def create_initial_state():
     return (THE_FOLLOW_OBJS, THE_LEAD_OBJS)
 
@@ -143,6 +181,17 @@ def list_of_follow_states_to_count_vector(follow_states):
     for (follow_name, follow_state) in follow_states.items():
         l.append(follow_state.count_dances_taken())
     return tuple(l)
+
+#
+def make_state_buckets_old(states):
+    state_buckets = {}
+    for state in states:
+        state_count_vector = list_of_follow_states_to_count_vector(state[FOLLOWS])
+        if state_count_vector in state_buckets:
+            state_buckets[state_count_vector].append(state)
+        else:
+            state_buckets[state_count_vector] = [state]
+    return state_buckets
 
 def make_state_buckets(states):
     state_buckets = {}
@@ -260,6 +309,14 @@ def calc_opt_state(states):
 
     return best_state
 
+def both_are_alternates(lead_name, follow_name):
+    if (len(lead_name) != len('ALTERNATE**') or
+        len(follow_name) != len('ALTERNATE**')):
+        return False
+
+    return (lead_name[0:len('ALTERNATE')] == 'ALTERNATE' and 
+            follow_name[0:len('ALTERNATE')] == 'ALTERNATE')
+
 def gen_next_states(follow_state, lead_state, curr_lead):
     # by direction of DP, curr_lead has both partners free
 
@@ -267,11 +324,16 @@ def gen_next_states(follow_state, lead_state, curr_lead):
     #opt: only enumerate over free ones?
     for (waltz_partner_name, waltz_partner_state) in follow_state.items():
         #? (follow_state_copy, lead_state_copy) = (copy.copy(follow_state), copy.copy(lead_state))
-        if not waltz_partner_state.free_for_waltz(): continue
+        if (not waltz_partner_state.free_for_waltz()
+            or both_are_alternates(curr_lead, waltz_partner_name)):
+            continue
 
         for (polka_partner_name, polka_partner_state) in follow_state.items():
-            if not polka_partner_state.free_for_polka(): continue
-            if polka_partner_state.name == waltz_partner_state.name: continue
+            if (not polka_partner_state.free_for_polka()
+                or polka_partner_state.name == waltz_partner_state.name
+                or both_are_alternates(curr_lead, polka_partner_name)
+                or both_are_alternates(waltz_partner_name, polka_partner_name)):
+                continue
 
             (follow_state_copy, lead_state_copy) = (copy.deepcopy(follow_state), copy.deepcopy(lead_state))
 
@@ -336,7 +398,7 @@ def selection_not_valid(selection):
         and selection != SCORE_METRIC_MAX_SUM)
 
 def determine_score_metric():
-    selection = None
+    selection = SCORE_METRIC_MAX_SUM
     while selection_not_valid(selection):
         print 'Select a score metric:'
         print '\t(', 0, ') max-min'
