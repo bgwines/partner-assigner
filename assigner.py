@@ -21,7 +21,7 @@ SCORE_METRIC_MAX_MIN_ASSIGNMENT = 0
 SCORE_METRIC_MAX_SUM = 1
 
 debug_flag = False
-status_flag = True
+status_flag = False
 
 THE_LEAD_OBJS = {}
 THE_FOLLOW_OBJS = {}
@@ -104,6 +104,9 @@ class DancerState:
     def __repr__(self):
         return self.name + ' : (w,p)=(' + str(self.waltz_partner) + ',' + str(self.polka_partner) + ')' 
 
+    def __hash__(self):
+        return hash(self.__repr__())
+
 class Preference:
     src = None
     dst = None
@@ -182,25 +185,14 @@ def list_of_follow_states_to_count_vector(follow_states):
         l.append(follow_state.count_dances_taken())
     return tuple(l)
 
-#
-def make_state_buckets_old(states):
+def make_state_buckets(states, curr_lead):
     state_buckets = {}
     for state in states:
-        state_count_vector = list_of_follow_states_to_count_vector(state[FOLLOWS])
-        if state_count_vector in state_buckets:
-            state_buckets[state_count_vector].append(state)
-        else:
-            state_buckets[state_count_vector] = [state]
-    return state_buckets
+        curr_lead_assignments = hash(state[LEADS][curr_lead])
+        if curr_lead_assignments not in state_buckets:
+            state_buckets[curr_lead_assignments] = []
+        state_buckets[curr_lead_assignments].append(state)
 
-def make_state_buckets(states):
-    state_buckets = {}
-    for state in states:
-        state_count_vector = list_of_follow_states_to_count_vector(state[FOLLOWS])
-        if state_count_vector in state_buckets:
-            state_buckets[state_count_vector].append(state)
-        else:
-            state_buckets[state_count_vector] = [state]
     return state_buckets
 
 X = -1
@@ -245,10 +237,10 @@ def calc_state_score_max_min_assignment(scores):
     return min_score
 
 def calc_state_score_max_sum(scores):
-    sum = 0
+    total = 0
     for score in scores:
-        sum += score
-    return sum
+        total += score
+    return total
 
 def calc_state_score(state):
     scores = get_scores_from_state(state)
@@ -266,7 +258,7 @@ def print_state(state, flag = False):
     for (lead_name, lead_state) in state[LEADS].items():
         matrix[0].append(lead_state.name)
 
-    i=0;
+    i=0
     for (follow_name, follow_state) in state[FOLLOWS].items():
         matrix.append([follow_state.name])
         i += 1
@@ -284,7 +276,6 @@ def print_state(state, flag = False):
             print '\t',
         print line
     #for i, follow_state in enumerate(state[FOLLOWS]):
-
 
 def calc_opt_state(states):
     scores_for_printing = []
@@ -320,20 +311,28 @@ def both_are_alternates(lead_name, follow_name):
 def gen_next_states(follow_state, lead_state, curr_lead):
     # by direction of DP, curr_lead has both partners free
 
+    #print 'CURR LEAD: ', curr_lead
+
     next_states = []
     #opt: only enumerate over free ones?
     for (waltz_partner_name, waltz_partner_state) in follow_state.items():
         #? (follow_state_copy, lead_state_copy) = (copy.copy(follow_state), copy.copy(lead_state))
         if (not waltz_partner_state.free_for_waltz()
             or both_are_alternates(curr_lead, waltz_partner_name)):
+            #print 'W skipping ', waltz_partner_name
             continue
+        #print 'W using ', waltz_partner_name
 
         for (polka_partner_name, polka_partner_state) in follow_state.items():
             if (not polka_partner_state.free_for_polka()
                 or polka_partner_state.name == waltz_partner_state.name
                 or both_are_alternates(curr_lead, polka_partner_name)
                 or both_are_alternates(waltz_partner_name, polka_partner_name)):
+                #print '\tP skipping ', polka_partner_name
+                #print '\t because: ', (not polka_partner_state.free_for_polka()), (polka_partner_state.name == waltz_partner_state.name), (both_are_alternates(curr_lead, polka_partner_name)), (both_are_alternates(waltz_partner_name, polka_partner_name))
                 continue
+
+            #print '\tmaking assignment: ', (waltz_partner_name, polka_partner_name)
 
             (follow_state_copy, lead_state_copy) = (copy.deepcopy(follow_state), copy.deepcopy(lead_state))
 
@@ -346,12 +345,12 @@ def gen_next_states(follow_state, lead_state, curr_lead):
             )
     return next_states
 
-def collapse_states(states):
+def collapse_states(states, curr_lead):
     if len(states) == 1:
         #optimization
         return states
 
-    state_buckets = make_state_buckets(states)
+    state_buckets = make_state_buckets(states, curr_lead)
 
     collapsed_states = []
     for (count_vector, bucketed_states) in state_buckets.items():
@@ -360,15 +359,19 @@ def collapse_states(states):
     return collapsed_states
 
 def calc_optimal_assignments_with_curr_lead(dp_state, i):
-    new_dp_state = []
-
     new_states = []
+    x = 0
     for (follow_state, lead_state) in dp_state:
+        x += 1
+        print x, '/', len(dp_state)
         states_from_curr_state = gen_next_states(follow_state, lead_state, i)
         for state_from_curr_state in states_from_curr_state:
             new_states.append(state_from_curr_state)
 
-    collapsed_states = collapse_states(new_states)
+    print 'collapsing ', len(new_states), ' states.'
+
+    new_dp_state = []
+    collapsed_states = collapse_states(new_states, i)
     for collapsed_state in collapsed_states:
         new_dp_state.append(collapsed_state)
 
@@ -383,13 +386,15 @@ def dp():
     initial_state = create_initial_state()
     dp_state = [initial_state]
 
-    for j,lead in enumerate(THE_LEAD_OBJS):
+    leads = [x for x in enumerate(THE_LEAD_OBJS)]
+    leads.sort(key=lambda x: -1 * len(x[1]))
+    for j,lead in leads:
         if status_flag:
             print '----- adding lead #', j, '-----'
-        dp_state = calc_optimal_assignments_with_curr_lead(
-            dp_state,
-            lead
-        )
+        print '----- adding lead #', j, '-----'
+        print '----- len(dp_state): ', len(dp_state), '-----'
+        #pdb.set_trace()
+        dp_state = calc_optimal_assignments_with_curr_lead(dp_state, lead)
 
     return dp_state
 
