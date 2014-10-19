@@ -2,6 +2,7 @@ import copy
 import pdb
 import sys
 import thread
+from random import shuffle
 
 WALTZ = 0
 POLKA = 1
@@ -196,7 +197,7 @@ def make_state_buckets(states, curr_lead):
     return state_buckets
 
 X = -1
-HEART = 100#TODO
+HEART = 100 #TODO
 BAD_STATE = 18 * 2 * (-100)
 def calc_value(ranking):
     if ranking == 'X':
@@ -206,35 +207,81 @@ def calc_value(ranking):
     else:
         return int(ranking)
 
-def get_scores_from_state(state):
+def elem_counts(l):
+    counts = {}
+    for e in l:
+        if e not in counts:
+            counts[e] = 0
+        counts[e] += 1
+    return counts
+
+def get_humanreadable_scores_from_state(state):
     scores = []
-    #TODO: dp the score
     for (follow_name, follow_state) in state[FOLLOWS].items():
+        follow_waltz_prefs = follow_state.waltz_prefs.items()
+        follow_waltz_prefs.sort(key=lambda x:x[1])
+        follow_waltz_prefs.reverse()
+        follow_waltz_prefs = map(lambda x:x[0], follow_waltz_prefs)
+
+        follow_polka_prefs = follow_state.polka_prefs.items()
+        follow_polka_prefs.sort(key=lambda x:x[1])
+        follow_polka_prefs.reverse()
+        follow_polka_prefs = map(lambda x:x[0], follow_polka_prefs)
+
         if not follow_state.free_for_waltz():
             lead_name = follow_state.waltz_partner
 
-            value_a = calc_value(follow_state.waltz_prefs[lead_name])
-            value_b = calc_value(THE_LEAD_OBJS[lead_name].waltz_prefs[follow_name])
-            scores.append(value_a)
-            scores.append(value_b)
+            lead_waltz_prefs = THE_LEAD_OBJS[lead_name].waltz_prefs.items()
+            lead_waltz_prefs.sort(key=lambda x:x[1])
+            lead_waltz_prefs.reverse()
+            lead_waltz_prefs = map(lambda x:x[0], lead_waltz_prefs)
+
+            lead_polka_prefs = THE_LEAD_OBJS[lead_name].polka_prefs.items()
+            lead_polka_prefs.sort(key=lambda x:x[1])
+            lead_polka_prefs.reverse()
+            lead_polka_prefs = map(lambda x:x[0], lead_polka_prefs)
+
+            if not follow_name.startswith('ALTERNATE'):
+                value_a = follow_waltz_prefs.index(lead_name)
+                scores.append(value_a)
+
+            if not lead_name.startswith('ALTERNATE'):
+                value_b = lead_waltz_prefs.index(follow_name)
+                scores.append(value_b)
 
         if not follow_state.free_for_polka():
             lead_name = follow_state.polka_partner
 
-            value_a = calc_value(THE_FOLLOW_OBJS[follow_name].polka_prefs[lead_name])
-            value_b = calc_value(THE_LEAD_OBJS[lead_name].polka_prefs[follow_name])
-            scores.append(value_a)
-            scores.append(value_b)
+            lead_waltz_prefs = THE_LEAD_OBJS[lead_name].waltz_prefs.items()
+            lead_waltz_prefs.sort(key=lambda x:x[1])
+            lead_waltz_prefs.reverse()
+            lead_waltz_prefs = map(lambda x:x[0], lead_waltz_prefs)
+
+            lead_polka_prefs = THE_LEAD_OBJS[lead_name].polka_prefs.items()
+            lead_polka_prefs.sort(key=lambda x:x[1])
+            lead_polka_prefs.reverse()
+            lead_polka_prefs = map(lambda x:x[0], lead_polka_prefs)
+
+            if not follow_name.startswith('ALTERNATE'):
+                value_a = follow_polka_prefs.index(lead_name)
+                scores.append(value_a)
+
+            if not lead_name.startswith('ALTERNATE'):
+                value_b = lead_polka_prefs.index(follow_name)
+                scores.append(value_b)
 
     return scores
 
+def get_scores_from_state(state):
+    return get_humanreadable_scores_from_state(state)
+
 SENTINEL = -2
 def calc_state_score_max_min_assignment(scores):
-    min_score = SENTINEL
+    max_score = 0
     for score in scores:
-        if min_score == SENTINEL or score < min_score:
-            min_score = score
-    return min_score
+        if score > max_score:
+            max_score = score
+    return -1 * max_score
 
 def calc_state_score_max_sum(scores):
     total = 0
@@ -244,7 +291,6 @@ def calc_state_score_max_sum(scores):
 
 def calc_state_score(state):
     scores = get_scores_from_state(state)
-
     if SCORE_METRIC == SCORE_METRIC_MAX_MIN_ASSIGNMENT:
         return calc_state_score_max_min_assignment(scores)
     elif SCORE_METRIC == SCORE_METRIC_MAX_SUM:
@@ -254,51 +300,27 @@ def calc_state_score(state):
 
 def print_state(state, flag = False):
     matrix = []
-    matrix.append([''])
+    matrix.append(['  '])
     for (lead_name, lead_state) in state[LEADS].items():
         matrix[0].append(lead_state.name)
 
-    i=0
+    i = 0
     for (follow_name, follow_state) in state[FOLLOWS].items():
         matrix.append([follow_state.name])
         i += 1
         for (lead_name, lead_state) in state[LEADS].items():
             if follow_state.waltz_partner == lead_state.name:
-                matrix[i].append('W')
+                matrix[i].append('W ')
             elif follow_state.polka_partner == lead_state.name:
-                matrix[i].append('P')
+                matrix[i].append('P ')
             else:
-                matrix[i].append('-')
+                matrix[i].append('- ')
 
     for line in matrix:
         print '\t\t',
         if flag:
             print '\t',
         print line
-    #for i, follow_state in enumerate(state[FOLLOWS]):
-
-def calc_opt_state(states):
-    scores_for_printing = []
-    state_vector_for_printing = list_of_follow_states_to_count_vector(states[0][FOLLOWS])
-
-    best_state = None
-    best_state_score = None
-    for state in states:
-        state_score = calc_state_score(state)
-        scores_for_printing.append(state_score)
-
-        if debug_flag: print '\tstate score ', state_score, ' for state: ', state
-        if debug_flag: print_state(state)
-
-        if state_score > best_state_score:
-            best_state_score = state_score
-            best_state = state
-
-    if status_flag:
-        print '\t--', state_vector_for_printing, ': state vector bucket size: ', len(states),
-        print 'scores (opt:', best_state_score, '): ', scores_for_printing
-
-    return best_state
 
 def both_are_alternates(lead_name, follow_name):
     if (len(lead_name) != len('ALTERNATE**') or
@@ -309,30 +331,21 @@ def both_are_alternates(lead_name, follow_name):
             follow_name[0:len('ALTERNATE')] == 'ALTERNATE')
 
 def gen_next_states(follow_state, lead_state, curr_lead):
-    # by direction of DP, curr_lead has both partners free
-
-    #print 'CURR LEAD: ', curr_lead
+    # by direction, curr_lead has both partners free
 
     next_states = []
-    #opt: only enumerate over free ones?
+    #opt: only enumerate over free ones
     for (waltz_partner_name, waltz_partner_state) in follow_state.items():
-        #? (follow_state_copy, lead_state_copy) = (copy.copy(follow_state), copy.copy(lead_state))
         if (not waltz_partner_state.free_for_waltz()
             or both_are_alternates(curr_lead, waltz_partner_name)):
-            #print 'W skipping ', waltz_partner_name
             continue
-        #print 'W using ', waltz_partner_name
 
         for (polka_partner_name, polka_partner_state) in follow_state.items():
             if (not polka_partner_state.free_for_polka()
                 or polka_partner_state.name == waltz_partner_state.name
                 or both_are_alternates(curr_lead, polka_partner_name)
                 or both_are_alternates(waltz_partner_name, polka_partner_name)):
-                #print '\tP skipping ', polka_partner_name
-                #print '\t because: ', (not polka_partner_state.free_for_polka()), (polka_partner_state.name == waltz_partner_state.name), (both_are_alternates(curr_lead, polka_partner_name)), (both_are_alternates(waltz_partner_name, polka_partner_name))
                 continue
-
-            #print '\tmaking assignment: ', (waltz_partner_name, polka_partner_name)
 
             (follow_state_copy, lead_state_copy) = (copy.deepcopy(follow_state), copy.deepcopy(lead_state))
 
@@ -345,65 +358,109 @@ def gen_next_states(follow_state, lead_state, curr_lead):
             )
     return next_states
 
-def collapse_states(states, curr_lead):
-    if len(states) == 1:
-        #optimization
-        return states
+def wp_pairs_to_consider(curr_lead):
+    pairs = []
+    for waltz_partner_name in THE_FOLLOW_OBJS.items():
+        waltz_partner_name = waltz_partner_name[0]
+        if (both_are_alternates(curr_lead, waltz_partner_name)):
+            continue
 
-    state_buckets = make_state_buckets(states, curr_lead)
+        for polka_partner_name in THE_FOLLOW_OBJS.items():
+            polka_partner_name = polka_partner_name[0]
+            if (polka_partner_name == waltz_partner_name
+                or both_are_alternates(curr_lead, polka_partner_name)):
+                continue
+            pairs.append((waltz_partner_name, polka_partner_name))
+    return pairs
 
-    collapsed_states = []
-    for (count_vector, bucketed_states) in state_buckets.items():
-        opt_state = calc_opt_state(bucketed_states)
-        collapsed_states.append(opt_state)
-    return collapsed_states
-
-def calc_optimal_assignments_with_curr_lead(dp_state, i):
-    new_states = []
-    x = 0
-    for (follow_state, lead_state) in dp_state:
-        x += 1
-        print x, '/', len(dp_state)
-        states_from_curr_state = gen_next_states(follow_state, lead_state, i)
-        for state_from_curr_state in states_from_curr_state:
-            new_states.append(state_from_curr_state)
-
-    print 'collapsing ', len(new_states), ' states.'
-
+def calc_optimal_assignments_with_curr_lead(dp_state, curr_lead):
     new_dp_state = []
-    collapsed_states = collapse_states(new_states, i)
-    for collapsed_state in collapsed_states:
-        new_dp_state.append(collapsed_state)
+    for (waltz_partner_name, polka_partner_name) in wp_pairs_to_consider(curr_lead):
+
+        best_so_far = None
+        best_score_so_far = -1
+        for (follow_state, lead_state) in dp_state:
+            waltz_partner_state = follow_state[waltz_partner_name]
+            polka_partner_state = follow_state[polka_partner_name]
+            if (waltz_partner_state.free_for_waltz() and
+                polka_partner_state.free_for_polka()):
+
+                # make assignment
+                lead_state[curr_lead].set_partners(waltz_partner_state.name, polka_partner_state.name)
+                follow_state[waltz_partner_name].set_waltz_partner(curr_lead)
+                follow_state[polka_partner_name].set_polka_partner(curr_lead)
+
+                # if it's better than the best, update the best (make copy)
+                score = calc_state_score((follow_state, lead_state))
+                if best_so_far is None or score > best_score_so_far:
+                    best_score_so_far = score
+                    best_so_far = (copy.deepcopy(follow_state), copy.deepcopy(lead_state))
+
+                # un-make assignment
+                lead_state[curr_lead].set_partners(None, None)
+                follow_state[waltz_partner_name].set_waltz_partner(None)
+                follow_state[polka_partner_name].set_polka_partner(None)
+
+        if best_so_far is not None:
+            new_dp_state.append(best_so_far)
 
     return new_dp_state
 
-def dp():
-    """
-    dp_state = [[DancerState], [DancerState], [DancerState], ...]
-        where [DancerState] = a list of assignments, one of <=3^18
-    """
-    print 'calculating...'
+def ultimate_optimal_assignments_for_lead_order(leads):
     initial_state = create_initial_state()
     dp_state = [initial_state]
 
-    leads = [x for x in enumerate(THE_LEAD_OBJS)]
-    leads.sort(key=lambda x: -1 * len(x[1]))
+    i = 0
     for j,lead in leads:
-        if status_flag:
-            print '----- adding lead #', j, '-----'
-        print '----- adding lead #', j, '-----'
-        print '----- len(dp_state): ', len(dp_state), '-----'
-        #pdb.set_trace()
+        i += 1
+        print '\t', i, '/', len(leads), '\t| ', len(dp_state)
         dp_state = calc_optimal_assignments_with_curr_lead(dp_state, lead)
 
-    return dp_state
+    if dp_state is None:
+        return None
+    else:
+        return dp_state[0]
+
+def ultimate_optimal_assignments():
+    print 'calculating...'
+
+    leads = [x for x in enumerate(THE_LEAD_OBJS)]
+    leads.sort(key=lambda x: -1 * len(x[1]))
+    alternates = leads[:2]
+    nonalternates = leads[2:]
+
+    best_score_so_far = -1
+    best_assignments_so_far = None
+    for i in xrange(1, 10):
+        print i, '/', 10
+        shuffle(nonalternates)
+        leads = alternates + nonalternates
+
+        assignments = ultimate_optimal_assignments_for_lead_order(leads)   
+        score = 0
+        if assignments is not None:
+            score = calc_state_score(assignments)
+
+        if score > best_score_so_far or best_assignments_so_far is None:
+            best_score_so_far = score
+            best_assignments_so_far = assignments
+            print 'found better assignment: (score: ', elem_counts(get_humanreadable_scores_from_state(assignments)) , ' - ', calc_state_score(assignments), ')'
+            print print_state(assignments)
+        else:
+            if assignments is None:
+                print 'assignments is None'
+            else:
+                print 'assignment not good enough: (score: ', elem_counts(get_humanreadable_scores_from_state(assignments)), ' - ', calc_state_score(assignments) , ')'
+                print print_state(assignments)            
+
+    return best_assignments_so_far
 
 def selection_not_valid(selection):
     return (selection != SCORE_METRIC_MAX_MIN_ASSIGNMENT
         and selection != SCORE_METRIC_MAX_SUM)
 
 def determine_score_metric():
-    selection = SCORE_METRIC_MAX_SUM
+    selection = SCORE_METRIC_MAX_MIN_ASSIGNMENT
     while selection_not_valid(selection):
         print 'Select a score metric:'
         print '\t(', 0, ') max-min'
@@ -414,16 +471,17 @@ def determine_score_metric():
     SCORE_METRIC = selection
 
 def print_assignments(assignments):
-    print '\n- final assignments -'
+    print '\n- final assignments: -'
     print print_state(assignments)
+    print '(score: ', elem_counts(get_humanreadable_scores_from_state(assignments)) , ')'
 
 FILENAME = 1
 def __main__():
     determine_score_metric()
     read_in_data(sys.argv[FILENAME])
 
-    final_assignments = dp()
-    print_assignments(final_assignments[0])
+    final_assignments = ultimate_optimal_assignments()
+    print_assignments(final_assignments)
 
 if __name__ == '__main__':
     __main__()

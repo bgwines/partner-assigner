@@ -1,0 +1,29 @@
+actual:
+[   A_ l2 l3 l0 l1 A_]
+[f0 W  -  -  -  P  - ]
+[f1 P  W  -  -  -  - ]
+[f2 -  -  P  -  -  W ]
+[f3 -  -  -  -  W  P ]
+[A_ -  P  -  W  -  - ]
+[A_ -  -  W  P  -  - ]
+
+desired:
+[   A1 l2 l3 l0 l1 A2]
+[f0 W           P   ]
+[f1 P  W            ]
+[f2       P        W]
+[f3          W     P]
+[A1          P  W   ]
+[A2    P  W         ]
+
+waltz:
+l0 f3
+l2 f1
+    a:
+    l1 l3 f0 f2
+
+polka:
+l1 f0
+l3 f2
+    a:
+    l0 l2 f1 f3

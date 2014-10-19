@@ -454,7 +454,7 @@ Minnie 0 0 ALTERNATE1L
 Minnie 0 0 ALTERNATE2L
 Rochelle 5 5 Antoine
 Rochelle 0 0 ALTERNATE1L
-Rochelle 0 0 ALTERNATE1L
+Rochelle 0 0 ALTERNATE2L
 Nancy 0 0 Bob
 Nancy 0 0 Bob
 Britney 3 3 Bob
@@ -761,4 +761,4 @@ Queenie 3 3 Roberto
 Ophelia 6 6 Roberto
 Katniss 3 3 Roberto
 Minnie 5 5 Roberto
-Rochelle 2  Roberto
+Rochelle 2 2 Roberto
